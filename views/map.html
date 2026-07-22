@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Map</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            font-family: sans-serif;
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
+            height: 100%;
+            background: #0b1220;
+            color: #e8eefc;
+            overflow: hidden;
+        }
+
+        #map {
+            position: fixed;
+            inset: 0;
+            z-index: 1;
+            height: 100%;
+            width: 100%;
+        }
+
+        .topbar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 10000;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+            padding: .75rem 1rem;
+            background: rgba(17, 24, 39, 0.94);
+            border-bottom: 1px solid #243044;
+            backdrop-filter: blur(8px);
+        }
+
+        .topbar h4 {
+            font-weight: 600;
+        }
+
+        .status-pill {
+            font-size: .85rem;
+            padding: .25rem .65rem;
+            border-radius: 999px;
+            background: #1f2937;
+            color: #9ca3af;
+        }
+
+        .status-pill.live {
+            background: #064e3b;
+            color: #6ee7b7;
+        }
+
+        .details {
+            position: fixed;
+            top: 58px;
+            left: 12px;
+            z-index: 10000;
+            width: min(320px, calc(100vw - 24px));
+            max-height: calc(100vh - 130px);
+            overflow: auto;
+            padding: 1rem;
+            background: rgba(15, 23, 42, 0.94);
+            border: 1px solid #243044;
+            border-radius: 12px;
+            backdrop-filter: blur(8px);
+        }
+
+        .details h3 {
+            margin-bottom: .75rem;
+            font-size: 1rem;
+            color: #93c5fd;
+        }
+
+        .row {
+            margin-bottom: .85rem;
+        }
+
+        .label {
+            display: block;
+            font-size: .75rem;
+            text-transform: uppercase;
+            letter-spacing: .04em;
+            color: #94a3b8;
+            margin-bottom: .2rem;
+        }
+
+        .value {
+            font-size: .95rem;
+            line-height: 1.4;
+            word-break: break-word;
+        }
+
+        .layers {
+            position: fixed;
+            top: 58px;
+            right: 12px;
+            z-index: 10000;
+            display: flex;
+            flex-direction: column;
+            gap: .4rem;
+            padding: .5rem;
+            background: rgba(15, 23, 42, 0.94);
+            border: 1px solid #243044;
+            border-radius: 12px;
+            backdrop-filter: blur(8px);
+        }
+
+        .layers button {
+            border: 1px solid #334155;
+            background: #111827;
+            color: #e2e8f0;
+            border-radius: 8px;
+            padding: .45rem .7rem;
+            cursor: pointer;
+            font-size: .85rem;
+            text-align: left;
+        }
+
+        .layers button.active {
+            background: #0f766e;
+            border-color: #14b8a6;
+            color: #fff;
+        }
+
+        .leaflet-top.leaflet-left {
+            top: 58px;
+        }
+
+        .leaflet-control-zoom {
+            margin-top: 12px !important;
+            margin-left: 12px !important;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="map"></div>
+
+    <div class="topbar">
+        <h4>ID: <span id="display-id"></span></h4>
+        <span class="status-pill" id="live-status">Waiting</span>
+    </div>
+
+    <aside class="details">
+        <h3>Location details</h3>
+        <div class="row">
+            <span class="label">Address</span>
+            <div class="value" id="address">Looking up...</div>
+        </div>
+        <div class="row">
+            <span class="label">Coordinates</span>
+            <div class="value" id="coords">—</div>
+        </div>
+        <div class="row">
+            <span class="label">Accuracy</span>
+            <div class="value" id="accuracy">—</div>
+        </div>
+        <div class="row">
+            <span class="label">Altitude</span>
+            <div class="value" id="altitude">—</div>
+        </div>
+        <div class="row">
+            <span class="label">Speed</span>
+            <div class="value" id="speed">—</div>
+        </div>
+        <div class="row">
+            <span class="label">Heading</span>
+            <div class="value" id="heading">—</div>
+        </div>
+        <div class="row">
+            <span class="label">Last update</span>
+            <div class="value" id="updated">—</div>
+        </div>
+    </aside>
+
+    <div class="layers" id="layer-buttons">
+        <button type="button" data-layer="hybrid" class="active">Hybrid</button>
+        <button type="button" data-layer="satellite">Satellite</button>
+        <button type="button" data-layer="detailed">Detailed streets</button>
+        <button type="button" data-layer="osm">OpenStreetMap</button>
+    </div>
+
+    <script id="initial-data" type="application/json">{{- data }}</script>
+    <script src="https://cdn.jsdelivr.net/npm/socket.io@4.8.1/client-dist/socket.io.min.js"></script>
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script>
+        const displayId = document.querySelector("#display-id")
+        const liveStatus = document.querySelector("#live-status")
+        const id = new URLSearchParams(location.search).get("id")
+        displayId.textContent = id
+
+        let initial = null
+        try {
+            initial = JSON.parse(document.getElementById("initial-data").textContent.trim() || "null")
+        } catch (error) {
+            console.error("Failed to parse initial map data:", error)
+        }
+
+        const startLatLng = initial
+            ? [initial.lat, initial.lng]
+            : [20.5937, 78.9629]
+
+        const map = L.map('map', {
+            zoomControl: true,
+            minZoom: 3,
+            maxZoom: 19,
+        }).setView(startLatLng, initial ? 16 : 5)
+
+        const marker = L.marker(startLatLng).addTo(map)
+        let accuracyCircle = null
+        let userMovedMap = false
+        let activeBase = null
+
+        map.on("zoomstart movestart", () => {
+            userMovedMap = true
+        })
+
+        const streets = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            maxNativeZoom: 19,
+            attribution: '&copy; OpenStreetMap'
+        })
+
+        const detailedStreets = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+            maxZoom: 19,
+            maxNativeZoom: 20,
+            attribution: '&copy; OpenStreetMap, &copy; CARTO'
+        })
+
+        const esriOpts = {
+            maxZoom: 19,
+            maxNativeZoom: 17,
+            attribution: 'Tiles &copy; Esri'
+        }
+
+        const satellite = L.tileLayer(
+            'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+            esriOpts
+        )
+
+        const hybridImagery = L.tileLayer(
+            'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+            { ...esriOpts }
+        )
+
+        const hybridLabels = L.tileLayer(
+            'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
+            { maxZoom: 19, maxNativeZoom: 17, attribution: 'Labels &copy; Esri' }
+        )
+
+        const hybridRoads = L.tileLayer(
+            'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}',
+            { maxZoom: 19, maxNativeZoom: 17, attribution: 'Roads &copy; Esri' }
+        )
+
+        const hybrid = L.layerGroup([hybridImagery, hybridRoads, hybridLabels])
+
+        const layers = {
+            hybrid,
+            satellite,
+            detailed: detailedStreets,
+            osm: streets,
+        }
+
+        function setBaseLayer(name) {
+            if (activeBase) map.removeLayer(activeBase)
+            activeBase = layers[name]
+            map.addLayer(activeBase)
+
+            document.querySelectorAll("#layer-buttons button").forEach((btn) => {
+                btn.classList.toggle("active", btn.dataset.layer === name)
+            })
+        }
+
+        setBaseLayer("hybrid")
+
+        document.querySelectorAll("#layer-buttons button").forEach((btn) => {
+            btn.addEventListener("click", () => setBaseLayer(btn.dataset.layer))
+        })
+
+        function formatNumber(value, digits = 2, suffix = "") {
+            if (value == null || Number.isNaN(Number(value))) return "—"
+            return `${Number(value).toFixed(digits)}${suffix}`
+        }
+
+        function formatSpeed(mps) {
+            if (mps == null || Number.isNaN(Number(mps))) return "—"
+            const kmh = Number(mps) * 3.6
+            return `${kmh.toFixed(1)} km/h`
+        }
+
+        function formatHeading(deg) {
+            if (deg == null || Number.isNaN(Number(deg))) return "—"
+            return `${Number(deg).toFixed(0)}°`
+        }
+
+        function formatTime(ts) {
+            if (!ts) return "—"
+            return new Date(ts).toLocaleString()
+        }
+
+        function updateDetails(data) {
+            document.querySelector("#address").textContent = data.address || "Address unavailable"
+            document.querySelector("#coords").textContent = `${Number(data.lat).toFixed(6)}, ${Number(data.lng).toFixed(6)}`
+            document.querySelector("#accuracy").textContent = data.accuracy != null
+                ? `± ${formatNumber(data.accuracy, 1, " m")}`
+                : "—"
+            document.querySelector("#altitude").textContent = data.altitude != null
+                ? `${formatNumber(data.altitude, 1, " m")}${data.altitudeAccuracy != null ? ` (± ${formatNumber(data.altitudeAccuracy, 1, " m")})` : ""}`
+                : "—"
+            document.querySelector("#speed").textContent = formatSpeed(data.speed)
+            document.querySelector("#heading").textContent = formatHeading(data.heading)
+            document.querySelector("#updated").textContent = formatTime(data.updatedAt || data.timestamp)
+        }
+
+        function updateMap(data) {
+            const latLng = [data.lat, data.lng]
+            marker.setLatLng(latLng)
+
+            // Keep marker in view, but don't steal zoom after the user pans/zooms
+            if (!userMovedMap) {
+                map.setView(latLng, 16)
+            } else {
+                map.panTo(latLng)
+            }
+
+            const radius = data.accuracy != null ? Number(data.accuracy) : 0
+            if (radius > 0) {
+                if (accuracyCircle) {
+                    accuracyCircle.setLatLng(latLng).setRadius(radius)
+                } else {
+                    accuracyCircle = L.circle(latLng, {
+                        radius,
+                        color: "#38bdf8",
+                        fillColor: "#0ea5e9",
+                        fillOpacity: 0.15,
+                        weight: 1,
+                    }).addTo(map)
+                }
+            }
+
+            const popupLines = [
+                `<strong>${data.address || "Location update"}</strong>`,
+                `Lat/Lng: ${Number(data.lat).toFixed(6)}, ${Number(data.lng).toFixed(6)}`,
+                data.accuracy != null ? `Accuracy: ± ${Number(data.accuracy).toFixed(1)} m` : null,
+            ].filter(Boolean)
+
+            marker.bindPopup(popupLines.join("<br>"), {
+                autoPan: false,
+                maxWidth: 280,
+            })
+        }
+
+        function applyUpdate(data) {
+            updateDetails(data)
+            updateMap(data)
+            liveStatus.textContent = "Live"
+            liveStatus.classList.add("live")
+            displayId.textContent = `${id} - updating`
+
+            setTimeout(() => {
+                displayId.textContent = id
+            }, 2500)
+        }
+
+        if (initial) {
+            applyUpdate(initial)
+        }
+
+        const socket = io("", {
+            secure: true,
+            path: "/socket.io",
+            transports: ['websocket']
+        })
+
+        socket.on("map-data", data => {
+            if (data.id == id) {
+                applyUpdate(data)
+            }
+        })
+    </script>
+</body>
+
+</html>

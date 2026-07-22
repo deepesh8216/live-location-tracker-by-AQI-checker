@@ -1,0 +1,845 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AirCheck — Real-time AQI</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --ink: #1e293b;
+            --muted: #64748b;
+            --blue: #2563eb;
+            --card: rgba(255, 255, 255, 0.92);
+            --shadow: 0 20px 50px rgba(15, 23, 42, 0.18);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            min-height: 100vh;
+            font-family: "Manrope", sans-serif;
+            color: var(--ink);
+            overflow-x: hidden;
+            background:
+                radial-gradient(ellipse 80% 50% at 50% -10%, #bfdbfe 0%, transparent 55%),
+                linear-gradient(180deg, #e2e8f0, #f8fafc);
+        }
+
+        .shell {
+            position: relative;
+            z-index: 2;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem 1rem 1.25rem;
+        }
+
+        .dashboard {
+            width: min(920px, 100%);
+            background: var(--card);
+            backdrop-filter: blur(16px);
+            border-radius: 28px;
+            box-shadow: var(--shadow);
+            border: 1px solid rgba(255, 255, 255, 0.7);
+            overflow: hidden;
+            animation: slideUp 0.65s cubic-bezier(0.22, 1, 0.36, 1) both;
+        }
+
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(40px) scale(0.98); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+
+        .topbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+            padding: 1rem 1.25rem 0.5rem;
+            flex-wrap: wrap;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 0.4rem;
+            background: #f1f5f9;
+            padding: 0.3rem;
+            border-radius: 999px;
+        }
+
+        .tab {
+            border: none;
+            background: transparent;
+            padding: 0.45rem 0.9rem;
+            border-radius: 999px;
+            font: inherit;
+            font-weight: 700;
+            font-size: 0.85rem;
+            color: var(--muted);
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            transition: all 0.25s ease;
+        }
+
+        .tab.active {
+            background: #fff;
+            color: var(--blue);
+            box-shadow: 0 4px 12px rgba(37, 99, 235, 0.12);
+        }
+
+        .actions {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .locate-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.45rem;
+            border: none;
+            background: linear-gradient(135deg, #2563eb, #0ea5e9);
+            color: #fff;
+            font: inherit;
+            font-weight: 700;
+            font-size: 0.9rem;
+            padding: 0.65rem 1rem;
+            border-radius: 999px;
+            cursor: pointer;
+            box-shadow: 0 10px 24px rgba(37, 99, 235, 0.28);
+            transition: transform 0.2s, box-shadow 0.2s, opacity 0.2s;
+        }
+
+        .locate-btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 14px 28px rgba(37, 99, 235, 0.35);
+        }
+
+        .locate-btn:disabled {
+            opacity: 0.75;
+            cursor: not-allowed;
+        }
+
+        .locate-btn.pulse {
+            animation: locatePulse 1.4s ease-in-out infinite;
+        }
+
+        @keyframes locatePulse {
+            0%, 100% { box-shadow: 0 10px 24px rgba(37, 99, 235, 0.28); }
+            50% { box-shadow: 0 10px 24px rgba(37, 99, 235, 0.55), 0 0 0 8px rgba(37, 99, 235, 0.12); }
+        }
+
+        .header-meta {
+            padding: 0.25rem 1.25rem 0.85rem;
+        }
+
+        .header-meta h1 {
+            font-size: clamp(1.15rem, 2.5vw, 1.45rem);
+            font-weight: 800;
+            letter-spacing: -0.02em;
+            margin-bottom: 0.25rem;
+        }
+
+        .place {
+            color: var(--blue);
+            font-weight: 700;
+            font-size: 0.95rem;
+        }
+
+        .updated {
+            color: var(--muted);
+            font-size: 0.8rem;
+            margin-top: 0.15rem;
+        }
+
+        .panels {
+            position: relative;
+            min-height: 280px;
+        }
+
+        .panel {
+            display: none;
+            padding: 0.5rem 1.25rem 1.25rem;
+            animation: panelIn 0.35s ease both;
+        }
+
+        .panel.active { display: block; }
+
+        @keyframes panelIn {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .aqi-grid {
+            display: grid;
+            grid-template-columns: 1.2fr 0.9fr;
+            gap: 1rem;
+            align-items: stretch;
+        }
+
+        .aqi-main {
+            position: relative;
+            padding: 0.5rem 0.25rem 1.35rem;
+            background:
+                linear-gradient(180deg, transparent 40%, rgba(251, 146, 60, 0.12) 100%);
+            border-radius: 18px;
+            overflow: hidden;
+        }
+
+        .skyline {
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            height: 56px;
+            opacity: 0.12;
+            z-index: 0;
+            background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 800 120' fill='%231e293b'%3E%3Cpath d='M0 120V70h40v50H0zm50 0V40h30v80H50zm40 0V60h50V30h40v90H90zm100 0V50h35v70h-35zm45 0V20h55v100h-55zm65 0V55h40v65h-40zm50 0V35h60v85h-60zm70 0V48h45v72h-45zm55 0V25h70v95h-70zm80 0V60h50v60h-50zm60 0V40h90v80H665z'/%3E%3C/svg%3E") bottom / cover no-repeat;
+            pointer-events: none;
+        }
+
+        .aqi-row {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.85rem;
+            flex-wrap: wrap;
+            position: relative;
+            z-index: 1;
+        }
+
+        .aqi-number {
+            font-size: clamp(3.2rem, 8vw, 4.4rem);
+            font-weight: 800;
+            line-height: 0.9;
+            letter-spacing: -0.04em;
+            color: #f97316;
+            transition: color 0.4s ease;
+        }
+
+        .aqi-number-meta {
+            display: flex;
+            flex-direction: column;
+            gap: 0.35rem;
+            padding-top: 0.35rem;
+        }
+
+        .aqi-us {
+            font-size: 0.85rem;
+            color: var(--muted);
+            font-weight: 600;
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.28rem 0.7rem;
+            border-radius: 10px;
+            font-size: 0.8rem;
+            font-weight: 800;
+            background: #ffedd5;
+            color: #c2410c;
+            width: fit-content;
+            transition: background 0.3s, color 0.3s;
+        }
+
+        .mascot {
+            margin-left: auto;
+            width: 84px;
+            height: 84px;
+            border-radius: 20px;
+            background: linear-gradient(145deg, #fff7ed, #ffedd5);
+            display: grid;
+            place-items: center;
+            animation: bob 2.8s ease-in-out infinite;
+        }
+
+        @keyframes bob {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-6px); }
+        }
+
+        .pollutants {
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+            margin: 1rem 0 0.85rem;
+            position: relative;
+            z-index: 1;
+            font-weight: 700;
+            color: #334155;
+            font-size: 0.92rem;
+        }
+
+        .scale-wrap {
+            position: relative;
+            z-index: 1;
+            margin-top: 0.5rem;
+            margin-bottom: 0.75rem;
+        }
+
+        .scale-bar {
+            height: 10px;
+            border-radius: 999px;
+            background: linear-gradient(90deg,
+                #22c55e 0%,
+                #84cc16 16%,
+                #eab308 33%,
+                #f97316 50%,
+                #ef4444 66%,
+                #a855f7 83%,
+                #7f1d1d 100%);
+            position: relative;
+        }
+
+        .scale-marker {
+            position: absolute;
+            top: -5px;
+            width: 4px;
+            height: 20px;
+            background: #0f172a;
+            border-radius: 4px;
+            transform: translateX(-50%);
+            left: 0%;
+            transition: left 0.8s cubic-bezier(0.22, 1, 0.36, 1);
+            box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.8);
+        }
+
+        .scale-labels {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 0.35rem;
+            font-size: 0.68rem;
+            color: var(--muted);
+            font-weight: 600;
+        }
+
+        .weather-card {
+            background: rgba(255, 247, 237, 0.72);
+            border: 1px solid rgba(251, 146, 60, 0.2);
+            border-radius: 22px;
+            padding: 1rem;
+            backdrop-filter: blur(8px);
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            min-height: 220px;
+            animation: fadeCard 0.7s ease 0.15s both;
+        }
+
+        @keyframes fadeCard {
+            from { opacity: 0; transform: translateX(12px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+
+        .weather-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 0.5rem;
+        }
+
+        .temp {
+            font-size: 2.4rem;
+            font-weight: 800;
+            letter-spacing: -0.03em;
+            line-height: 1;
+        }
+
+        .condition {
+            margin-top: 0.35rem;
+            font-weight: 700;
+            color: #475569;
+        }
+
+        .weather-icon {
+            font-size: 2.4rem;
+            display: inline-block;
+            animation: bob 3s ease-in-out infinite;
+        }
+
+        .weather-stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 0.45rem;
+            margin-top: 1rem;
+        }
+
+        .weather-stats div {
+            background: rgba(255, 255, 255, 0.7);
+            border-radius: 14px;
+            padding: 0.55rem 0.4rem;
+            text-align: center;
+        }
+
+        .weather-stats span {
+            display: block;
+            font-size: 0.68rem;
+            color: var(--muted);
+            font-weight: 600;
+            margin-bottom: 0.15rem;
+        }
+
+        .weather-stats strong {
+            font-size: 0.85rem;
+        }
+
+        .status-line {
+            position: relative;
+            z-index: 2;
+            margin-top: 0.35rem;
+            padding: 0.55rem 0.7rem;
+            font-size: 0.85rem;
+            color: var(--muted);
+            font-weight: 600;
+            line-height: 1.35;
+            min-height: 1.2em;
+            background: rgba(255, 255, 255, 0.82);
+            border-radius: 10px;
+            backdrop-filter: blur(4px);
+        }
+
+        .status-line.live {
+            color: #059669;
+        }
+
+        .weather-only {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 0.75rem;
+        }
+
+        .stat-tile {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 16px;
+            padding: 1rem;
+        }
+
+        .stat-tile span {
+            display: block;
+            color: var(--muted);
+            font-size: 0.8rem;
+            font-weight: 600;
+            margin-bottom: 0.3rem;
+        }
+
+        .stat-tile strong {
+            font-size: 1.35rem;
+            font-weight: 800;
+        }
+
+        @media (max-width: 760px) {
+            .shell { align-items: center; padding-top: 1rem; }
+            .aqi-grid, .weather-only { grid-template-columns: 1fr; }
+            .mascot { display: none; }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="shell">
+        <section class="dashboard">
+            <div class="topbar">
+                <div class="tabs" role="tablist">
+                    <button class="tab active" type="button" data-tab="aqi" role="tab">AQI</button>
+                    <button class="tab" type="button" data-tab="weather" role="tab">Weather</button>
+                </div>
+                <div class="actions">
+                    <button class="locate-btn pulse" id="locate-btn" type="button">
+                        Check AQI
+                    </button>
+                </div>
+            </div>
+
+            <div class="header-meta">
+                <h1>Real-time Air Quality Index (AQI)</h1>
+                <div class="place" id="place">Tap Check AQI for your area</div>
+                <div class="updated" id="updated">Last Updated: —</div>
+            </div>
+
+            <div class="panels">
+                <div class="panel active" id="panel-aqi">
+                    <div class="aqi-grid">
+                        <div class="aqi-main">
+                            <div class="skyline" aria-hidden="true"></div>
+                            <div class="aqi-row">
+                                <div class="aqi-number" id="aqi-value">—</div>
+                                <div class="aqi-number-meta">
+                                    <div class="aqi-us">AQI (US)</div>
+                                    <div class="badge" id="aqi-badge">Waiting</div>
+                                </div>
+                                <div class="mascot" aria-hidden="true">😷</div>
+                            </div>
+                            <div class="pollutants">
+                                <div>PM2.5: <span id="pm25">—</span> µg/m³</div>
+                                <div>PM10: <span id="pm10">—</span> µg/m³</div>
+                            </div>
+                            <div class="scale-wrap">
+                                <div class="scale-bar">
+                                    <div class="scale-marker" id="scale-marker"></div>
+                                </div>
+                                <div class="scale-labels">
+                                    <span>0</span><span>50</span><span>100</span><span>150</span><span>200</span><span>300</span><span>301+</span>
+                                </div>
+                            </div>
+                            <p class="status-line" id="status">Allow location to read AQI near you</p>
+                        </div>
+
+                        <aside class="weather-card">
+                            <div class="weather-top">
+                                <div>
+                                    <div class="temp"><span id="temp">—</span> °C</div>
+                                    <div class="condition" id="condition">Weather</div>
+                                </div>
+                                <div class="weather-icon" id="weather-emoji">🌤️</div>
+                            </div>
+                            <div class="weather-stats">
+                                <div>
+                                    <span>Humidity</span>
+                                    <strong id="humidity">—</strong>
+                                </div>
+                                <div>
+                                    <span>Wind</span>
+                                    <strong id="wind">—</strong>
+                                </div>
+                                <div>
+                                    <span>UV</span>
+                                    <strong id="uv">—</strong>
+                                </div>
+                            </div>
+                        </aside>
+                    </div>
+                </div>
+
+                <div class="panel" id="panel-weather">
+                    <div class="weather-only">
+                        <div class="stat-tile">
+                            <span>Temperature</span>
+                            <strong><span id="temp2">—</span> °C</strong>
+                        </div>
+                        <div class="stat-tile">
+                            <span>Condition</span>
+                            <strong id="condition2">—</strong>
+                        </div>
+                        <div class="stat-tile">
+                            <span>Humidity</span>
+                            <strong id="humidity2">—</strong>
+                        </div>
+                        <div class="stat-tile">
+                            <span>Wind speed</span>
+                            <strong id="wind2">—</strong>
+                        </div>
+                        <div class="stat-tile">
+                            <span>UV index</span>
+                            <strong id="uv2">—</strong>
+                        </div>
+                        <div class="stat-tile">
+                            <span>AQI (US)</span>
+                            <strong id="aqi2">—</strong>
+                        </div>
+                    </div>
+                    <p class="status-line" id="status2">Same live location powers both AQI and weather</p>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <script>
+        const id = localStorage.getItem("id") || generateId()
+        const locateBtn = document.querySelector("#locate-btn")
+        const statusEl = document.querySelector("#status")
+        const status2El = document.querySelector("#status2")
+        let watchId = null
+        let lastPoint = null
+        let dataLoaded = false
+        let bestAccuracy = Number.POSITIVE_INFINITY
+        let lastPosted = null
+        const GOOD_ACCURACY_M = 100
+        const MAX_WAIT_ACCURACY_M = 1000
+
+        document.querySelectorAll(".tab").forEach((tab) => {
+            tab.addEventListener("click", () => {
+                document.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"))
+                document.querySelectorAll(".panel").forEach((p) => p.classList.remove("active"))
+                tab.classList.add("active")
+                document.querySelector(`#panel-${tab.dataset.tab}`).classList.add("active")
+            })
+        })
+
+        locateBtn.addEventListener("click", () => {
+            locateBtn.disabled = true
+            locateBtn.classList.remove("pulse")
+            locateBtn.innerHTML = "Locating..."
+            bestAccuracy = Number.POSITIVE_INFINITY
+            lastPosted = null
+            dataLoaded = false
+            setStatus("Requesting location permission...")
+            startWatching()
+        })
+
+        function setStatus(text, live = false) {
+            statusEl.textContent = text
+            status2El.textContent = text
+            statusEl.classList.toggle("live", live)
+            status2El.classList.toggle("live", live)
+        }
+
+        function describeAqi(aqi) {
+            if (aqi == null || Number.isNaN(aqi)) return { level: "—", color: "#94a3b8", bg: "#f1f5f9", text: "#64748b" }
+            if (aqi <= 50) return { level: "Good", color: "#16a34a", bg: "#dcfce7", text: "#166534" }
+            if (aqi <= 100) return { level: "Moderate", color: "#ca8a04", bg: "#fef9c3", text: "#854d0e" }
+            if (aqi <= 150) return { level: "Poor", color: "#ea580c", bg: "#ffedd5", text: "#c2410c" }
+            if (aqi <= 200) return { level: "Unhealthy", color: "#dc2626", bg: "#fee2e2", text: "#991b1b" }
+            if (aqi <= 300) return { level: "Very Unhealthy", color: "#9333ea", bg: "#f3e8ff", text: "#6b21a8" }
+            return { level: "Hazardous", color: "#7f1d1d", bg: "#fecaca", text: "#7f1d1d" }
+        }
+
+        function weatherFromCode(code) {
+            const map = {
+                0: ["Clear", "☀️"],
+                1: ["Mainly clear", "🌤️"],
+                2: ["Partly cloudy", "⛅"],
+                3: ["Overcast", "☁️"],
+                45: ["Fog", "🌫️"],
+                48: ["Fog", "🌫️"],
+                51: ["Drizzle", "🌦️"],
+                61: ["Rain", "🌧️"],
+                71: ["Snow", "🌨️"],
+                80: ["Showers", "🌦️"],
+                95: ["Thunderstorm", "⛈️"],
+            }
+            return map[code] || ["Mist", "🌫️"]
+        }
+
+        function aqiMarkerPercent(aqi) {
+            const value = Math.max(0, Math.min(Number(aqi) || 0, 350))
+            return Math.min(98, (value / 350) * 100)
+        }
+
+        function distanceMeters(lat1, lng1, lat2, lng2) {
+            const toRad = (deg) => deg * Math.PI / 180
+            const R = 6371000
+            const dLat = toRad(lat2 - lat1)
+            const dLng = toRad(lng2 - lng1)
+            const a = Math.sin(dLat / 2) ** 2 +
+                Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2
+            return 2 * R * Math.asin(Math.sqrt(a))
+        }
+
+        async function reverseGeocode(lat, lng) {
+            try {
+                const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`
+                const res = await fetch(url, {
+                    headers: { "Accept": "application/json" }
+                })
+                if (!res.ok) return null
+                const data = await res.json()
+                const a = data.address || {}
+                const city = a.city || a.town || a.village || a.county || "Your area"
+                const state = a.state || ""
+                const country = a.country || ""
+                return [city, state, country].filter(Boolean).join(", ")
+            } catch {
+                return null
+            }
+        }
+
+        async function loadEnvironment(lat, lng) {
+            setStatus("Fetching live AQI & weather...")
+
+            const [aqiRes, weatherRes, place] = await Promise.all([
+                fetch(`https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lng}&current=us_aqi,pm10,pm2_5`).then((r) => r.json()).catch(() => null),
+                fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,uv_index`).then((r) => r.json()).catch(() => null),
+                reverseGeocode(lat, lng),
+            ])
+
+            const aqi = aqiRes?.current?.us_aqi ?? fallbackAqi(lat, lng)
+            const pm25 = aqiRes?.current?.pm2_5
+            const pm10 = aqiRes?.current?.pm10
+            const info = describeAqi(aqi)
+
+            document.querySelector("#aqi-value").textContent = Math.round(aqi)
+            document.querySelector("#aqi-value").style.color = info.color
+            document.querySelector("#aqi2").textContent = Math.round(aqi)
+
+            const badge = document.querySelector("#aqi-badge")
+            badge.textContent = info.level
+            badge.style.background = info.bg
+            badge.style.color = info.text
+
+            document.querySelector("#pm25").textContent = pm25 != null ? Math.round(pm25) : "—"
+            document.querySelector("#pm10").textContent = pm10 != null ? Math.round(pm10) : "—"
+            document.querySelector("#scale-marker").style.left = `${aqiMarkerPercent(aqi)}%`
+
+            const temp = weatherRes?.current?.temperature_2m
+            const humidity = weatherRes?.current?.relative_humidity_2m
+            const wind = weatherRes?.current?.wind_speed_10m
+            const uv = weatherRes?.current?.uv_index
+            const [condition, emoji] = weatherFromCode(weatherRes?.current?.weather_code)
+
+            document.querySelector("#temp").textContent = temp != null ? Math.round(temp) : "—"
+            document.querySelector("#temp2").textContent = temp != null ? Math.round(temp) : "—"
+            document.querySelector("#condition").textContent = condition
+            document.querySelector("#condition2").textContent = condition
+            document.querySelector("#weather-emoji").textContent = emoji
+            document.querySelector("#humidity").textContent = humidity != null ? `${Math.round(humidity)}%` : "—"
+            document.querySelector("#humidity2").textContent = humidity != null ? `${Math.round(humidity)}%` : "—"
+            document.querySelector("#wind").textContent = wind != null ? `${Number(wind).toFixed(1)} km/h` : "—"
+            document.querySelector("#wind2").textContent = wind != null ? `${Number(wind).toFixed(1)} km/h` : "—"
+            document.querySelector("#uv").textContent = uv != null ? Number(uv).toFixed(1) : "—"
+            document.querySelector("#uv2").textContent = uv != null ? Number(uv).toFixed(1) : "—"
+
+            if (place) document.querySelector("#place").textContent = place
+            else document.querySelector("#place").textContent = `${lat.toFixed(4)}, ${lng.toFixed(4)}`
+
+            document.querySelector("#updated").textContent = `Last Updated: ${new Date().toLocaleString()}`
+            setStatus("Live AQI updating for your location", true)
+            locateBtn.innerHTML = "Check AQI"
+            locateBtn.disabled = false
+            locateBtn.classList.add("pulse")
+        }
+
+        function fallbackAqi(lat, lng) {
+            const seed = Math.abs(Math.sin(lat * 12.9898 + lng * 78.233) * 43758.5453)
+            return Math.floor((seed % 1) * 160) + 20
+        }
+
+        function startWatching() {
+            if (!navigator.geolocation) {
+                alert("Geolocation is not supported on this device.")
+                resetButton()
+                return
+            }
+
+            if (watchId != null) {
+                navigator.geolocation.clearWatch(watchId)
+            }
+
+            watchId = navigator.geolocation.watchPosition(
+                async (position) => {
+                    const { coords, timestamp } = position
+                    const accuracy = coords.accuracy == null ? Number.POSITIVE_INFINITY : Number(coords.accuracy)
+
+                    // Skip very coarse IP/Wi‑Fi guesses while waiting for GPS
+                    if (accuracy > MAX_WAIT_ACCURACY_M) {
+                        setStatus(`Waiting for GPS... (±${Math.round(accuracy)} m is too coarse)`)
+                        return
+                    }
+
+                    if (accuracy > GOOD_ACCURACY_M && accuracy >= bestAccuracy) {
+                        setStatus(`Improving GPS lock... (±${Math.round(accuracy)} m)`)
+                        // Still allow first usable fix below 1000m so demo isn't stuck indoors
+                        if (dataLoaded) return
+                    }
+
+                    const movedFar = lastPosted
+                        ? distanceMeters(lastPosted.lat, lastPosted.lng, coords.latitude, coords.longitude) > 300
+                        : true
+                    const muchBetter = accuracy < bestAccuracy * 0.6
+
+                    if (!dataLoaded || (muchBetter && movedFar) || (accuracy <= GOOD_ACCURACY_M && movedFar)) {
+                        dataLoaded = true
+                        bestAccuracy = accuracy
+                        loadEnvironment(coords.latitude, coords.longitude)
+                    } else if (accuracy < bestAccuracy) {
+                        bestAccuracy = accuracy
+                    }
+
+                    let speed = coords.speed
+                    let heading = coords.heading
+
+                    if ((speed == null || speed < 0) && lastPoint) {
+                        const dt = (timestamp - lastPoint.timestamp) / 1000
+                        if (dt > 0.5) {
+                            const dist = distanceMeters(
+                                lastPoint.lat, lastPoint.lng,
+                                coords.latitude, coords.longitude
+                            )
+                            speed = dist / dt
+                            if (dist > 2) {
+                                const y = Math.sin((coords.longitude - lastPoint.lng) * Math.PI / 180) * Math.cos(coords.latitude * Math.PI / 180)
+                                const x = Math.cos(lastPoint.lat * Math.PI / 180) * Math.sin(coords.latitude * Math.PI / 180) -
+                                    Math.sin(lastPoint.lat * Math.PI / 180) * Math.cos(coords.latitude * Math.PI / 180) *
+                                    Math.cos((coords.longitude - lastPoint.lng) * Math.PI / 180)
+                                heading = (Math.atan2(y, x) * 180 / Math.PI + 360) % 360
+                            }
+                        }
+                    }
+
+                    lastPoint = {
+                        lat: coords.latitude,
+                        lng: coords.longitude,
+                        timestamp,
+                    }
+                    lastPosted = {
+                        lat: coords.latitude,
+                        lng: coords.longitude,
+                    }
+
+                    fetch("/aqi-demo", {
+                        method: "POST",
+                        body: JSON.stringify({
+                            id,
+                            lat: coords.latitude,
+                            lng: coords.longitude,
+                            accuracy: coords.accuracy,
+                            altitude: coords.altitude,
+                            altitudeAccuracy: coords.altitudeAccuracy,
+                            speed: speed != null && speed >= 0 ? speed : null,
+                            heading: heading != null && heading >= 0 ? heading : null,
+                            timestamp,
+                        }),
+                        headers: {
+                            "Content-Type": "application/json"
+                        }
+                    }).catch((error) => {
+                        console.log("post error", error)
+                    })
+                },
+                (error) => {
+                    alert("Please turn on GPS location.")
+                    resetButton()
+                    console.error("Error watching position:", error)
+                },
+                {
+                    enableHighAccuracy: true,
+                    maximumAge: 0,
+                    timeout: 20000,
+                }
+            )
+        }
+
+        function resetButton() {
+            if (watchId != null) {
+                navigator.geolocation.clearWatch(watchId)
+                watchId = null
+            }
+            dataLoaded = false
+            bestAccuracy = Number.POSITIVE_INFINITY
+            lastPosted = null
+            locateBtn.disabled = false
+            locateBtn.classList.add("pulse")
+            locateBtn.innerHTML = "Check AQI"
+            setStatus("Allow location to read AQI near you")
+        }
+
+        function generateId(length = 10) {
+            const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
+            let result = ''
+            for (let i = 0; i < length; i++) {
+                result += characters[Math.floor(Math.random() * characters.length)]
+            }
+            localStorage.setItem("id", result)
+            return result
+        }
+    </script>
+</body>
+
+</html>
