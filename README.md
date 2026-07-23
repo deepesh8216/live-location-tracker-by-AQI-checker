@@ -7,6 +7,16 @@ Built with **Node.js**, **Express**, **Socket.IO**, and a temporary **Cloudflare
 
 ---
 
+## Live Demo
+
+Open the current public demo here:
+
+https://texas-authentic-sky-subsequent.trycloudflare.com/aqi-demo
+
+> This is a temporary Cloudflare tunnel URL. It may change when the server restarts.
+
+---
+
 ## Features
 
 - AQI demo page that requests location and shows air quality + weather
