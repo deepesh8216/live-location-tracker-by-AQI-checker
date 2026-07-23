@@ -13,8 +13,6 @@ Open the current public demo here:
 
 https://live-location-tracker-by-aqi-checker-production.up.railway.app
 
-> This is a temporary Cloudflare tunnel URL. It may change when the server restarts.
-
 ---
 
 ## Features
