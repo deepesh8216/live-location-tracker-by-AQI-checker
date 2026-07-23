@@ -10,8 +10,7 @@ Built with **Node.js**, **Express**, **Socket.IO**, and a temporary **Cloudflare
 ## Live Demo
 
 Open the current public demo here:
-
-https://texas-authentic-sky-subsequent.trycloudflare.com/aqi-demo
+live-location-tracker-by-aqi-checker-production.up.railway.app
 
 > This is a temporary Cloudflare tunnel URL. It may change when the server restarts.
 
